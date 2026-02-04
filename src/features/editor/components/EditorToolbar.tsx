@@ -35,7 +35,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         setTimeout(() => setCopyFeedback(false), 1500);
     };
 
-    const buttonBase = "inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-150";
+    const buttonBase = "inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors duration-150";
     const buttonEnabled = "text-foreground/80 hover:text-foreground hover:bg-accent active:scale-[0.98]";
     const buttonDisabled = "text-muted-foreground/40 cursor-not-allowed";
 

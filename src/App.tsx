@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Layout } from './components/layout/Layout';
-import { Editor } from './features/editor/components/Editor';
+import Split from 'react-split';
+import { Github } from 'lucide-react';
+import { ThemeToggle } from './components/ThemeToggle';
+import { JsonEditor as Editor } from './features/editor/components/Editor';
 import { UniversalViewer } from './features/viewer/components/UniversalViewer';
-import { FormatSelector } from './features/editor/components/FormatSelector';
-import { FormatManager } from './utils/formatManager';
 import { Format } from './types/formats';
 
 function App() {

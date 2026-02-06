@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
-import {
-    Maximize2,
-    Minimize2,
-    Copy,
-    Download,
-    Trash2,
-    Check
-} from 'lucide-react';
+import { Copy, Download, Trash2, Maximize2, Minimize2, Check } from 'lucide-react';
+import { FormatSelector } from './FormatSelector';
+import { Format } from '../../../types/formats';
 
 interface EditorToolbarProps {
     onPrettify: () => void;
@@ -14,6 +9,9 @@ interface EditorToolbarProps {
     onCopy: () => void;
     onDownload: () => void;
     onClear: () => void;
+    onFormatChange: (format: Format) => void;
+    currentFormat: Format | undefined;
+    detectedFormat: Format;
     isValid: boolean;
     isEmpty: boolean;
 }
@@ -24,7 +22,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     onCopy,
     onDownload,
     onClear,
-    isValid,
+    onFormatChange,
+    currentFormat,
+    detectedFormat,
+    // isValid - unused now
     isEmpty,
 }) => {
     const [copyFeedback, setCopyFeedback] = useState(false);
@@ -40,22 +41,28 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     const buttonDisabled = "text-muted-foreground/40 cursor-not-allowed";
 
     return (
-        <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b border-border/50">
+        <div className="flex items-center justify-between p-2 border-b border-border bg-muted/20">
             <div className="flex items-center gap-1">
+                <FormatSelector
+                    value={currentFormat}
+                    onChange={onFormatChange}
+                    detectedFormat={detectedFormat}
+                />
+                <div className="w-px h-4 bg-border mx-1" />
                 <button
                     onClick={onPrettify}
-                    disabled={!isValid || isEmpty}
+                    disabled={isEmpty}
                     title="Format JSON"
-                    className={`${buttonBase} ${!isValid || isEmpty ? buttonDisabled : buttonEnabled}`}
+                    className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
                 >
                     <Maximize2 size={14} />
                     <span>Format</span>
                 </button>
                 <button
                     onClick={onMinify}
-                    disabled={!isValid || isEmpty}
+                    disabled={isEmpty}
                     title="Minify JSON"
-                    className={`${buttonBase} ${!isValid || isEmpty ? buttonDisabled : buttonEnabled}`}
+                    className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
                 >
                     <Minimize2 size={14} />
                     <span>Minify</span>
@@ -74,9 +81,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 </button>
                 <button
                     onClick={onDownload}
-                    disabled={!isValid || isEmpty}
+                    disabled={isEmpty}
                     title="Download as file"
-                    className={`${buttonBase} ${!isValid || isEmpty ? buttonDisabled : buttonEnabled}`}
+                    className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
                 >
                     <Download size={14} />
                 </button>

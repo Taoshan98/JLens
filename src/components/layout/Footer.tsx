@@ -5,7 +5,7 @@ export const Footer: React.FC = () => {
         <footer className="border-t border-border/50 py-3 mt-auto">
             <div className="container mx-auto px-4 text-center">
                 <p className="text-xs text-muted-foreground/70">
-                    JLens — Built for developers
+                    JLens — Built with ❤️ for developers
                 </p>
             </div>
         </footer>

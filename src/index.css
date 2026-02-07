@@ -118,3 +118,21 @@
 ::-webkit-scrollbar-thumb:hover {
     @apply bg-zinc-400 dark:bg-zinc-600;
 }
+
+/* JsonTree Line Numbers */
+.json-tree-container {
+    counter-reset: json-line;
+}
+
+.json-node-row {
+    position: relative;
+    counter-increment: json-line;
+}
+
+.json-node-row::before {
+    content: counter(json-line);
+    position: absolute;
+    left: 0;
+    width: 1.5rem;
+    @apply text-muted-foreground/30 text-xs font-mono select-none text-right;
+}

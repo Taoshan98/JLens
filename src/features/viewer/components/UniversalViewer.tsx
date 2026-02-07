@@ -1,5 +1,7 @@
 import React from 'react';
 import { JsonTree } from './JsonTree';
+import { NodeDetailPanel, type NodeDetail } from './NodeDetailPanel';
+import Split from 'react-split';
 import { DocumentPreview } from './DocumentPreview';
 import { Format, FORMATS, FormatCategory } from '../../../types/formats';
 import { Braces, FileText, Code2 } from 'lucide-react';
@@ -48,12 +50,52 @@ export const UniversalViewer: React.FC<UniversalViewerProps> = ({ data, format }
         );
     }
 
+    // State for selection
+    const [selectedNode, setSelectedNode] = React.useState<NodeDetail | null>(null);
+
+    // Update selection when data changes (reset?)
+    React.useEffect(() => {
+        setSelectedNode(null);
+    }, [data]);
+
+    const handleSelect = (path: string, value: unknown, key: string) => {
+        let type: string = typeof value;
+        if (value === null) type = 'null';
+        else if (Array.isArray(value)) type = 'array';
+
+        setSelectedNode({
+            key,
+            value,
+            type,
+            path
+        });
+    };
+
     return (
         <div className="h-full overflow-hidden flex flex-col">
-            {/* We can reuse the container styles from JsonTree if strictly needed or wrap it here */}
-            <div className="flex-1 min-h-0">
-                <JsonTree data={data} />
-            </div>
+            <Split
+                className="flex flex-col h-full"
+                sizes={[70, 30]}
+                minSize={100}
+                gutterSize={16}
+                gutterAlign="center"
+                snapOffset={30}
+                dragInterval={1}
+                direction="vertical"
+                cursor="row-resize"
+            >
+                <div className="h-full overflow-hidden">
+                    <JsonTree
+                        data={data}
+                        selectedPath={selectedNode?.path}
+                        onSelect={handleSelect}
+                    />
+                </div>
+
+                <div className="h-full overflow-auto rounded-lg border border-border bg-card">
+                    <NodeDetailPanel selectedNode={selectedNode} />
+                </div>
+            </Split>
         </div>
     );
 };

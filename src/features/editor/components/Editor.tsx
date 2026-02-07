@@ -14,6 +14,32 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
     const [userFormat, setUserFormat] = useState<Format | undefined>(undefined); // explicit override
     const { validation, validate } = useFormatValidation();
 
+    // Auto-paste from clipboard on focus if empty
+    useEffect(() => {
+        const checkClipboard = async () => {
+            // Safety: Only paste if input is completely empty to prevent data loss
+            if (input.trim() !== '') return;
+
+            try {
+                // Check permissions first? navigator.clipboard.readText() usually requires focus + permission
+                const text = await navigator.clipboard.readText();
+                if (text && text.trim().length > 0) {
+                    setInput(text);
+                    // We don't need to manually validate here because the input change effect will trigger it
+                }
+            } catch (err) {
+                // Silently fail if permission denied or clipboard empty/inaccessible
+                // This is expected in many contexts (iframe, background, etc)
+            }
+        };
+
+        window.addEventListener('focus', checkClipboard);
+        // Also try on mount (initial load)
+        checkClipboard();
+
+        return () => window.removeEventListener('focus', checkClipboard);
+    }, [input]); // Re-bind if input changes, but the check `input.trim() !== ''` handles the guard.
+
     // Trigger validation when input or userFormat changes
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -137,17 +163,50 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                     isEmpty={isEmpty}
                 />
 
-                <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Paste your content here..."
-                    className="flex-1 w-full p-4 resize-none font-mono text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground/40"
-                    spellCheck={false}
-                />
+                <div className="flex-1 flex overflow-hidden relative">
+                    {/* Line Numbers Gutter */}
+                    <div
+                        className="flex-shrink-0 bg-muted/20 border-r border-border py-4 pl-3 pr-3 text-right text-muted-foreground/30 font-mono text-sm select-none overflow-hidden"
+                        style={{ width: '3.5rem' }} // Fixed width for gutter
+                        aria-hidden="true"
+                    >
+                        <div
+                            // No ref needed for now as we sync via ID
+                            id="editor-gutter"
+                            className="w-full"
+                        >
+                            {input.split('\n').map((_, i) => (
+                                <div key={i} className="leading-6 h-6">{i + 1}</div> // Leading-6 matches textarea line-height (1.5rem / 24px) usually?
+                                // Tailwind 'leading-relaxed' is 1.625, 'leading-6' is 1.5rem (24px). Textarea default? 
+                                // textarea has "text-sm", default leading is likely 1.25rem (20px).
+                                // Let's force specific leading on both.
+                            ))}
+                        </div>
+                    </div>
+
+                    <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onScroll={(e) => {
+                            const gutter = document.getElementById('editor-gutter');
+                            if (gutter) {
+                                // Sync vertical scroll
+                                // The gutter container is overflow-hidden, so we transform or set top?
+                                // Actually, better to scroll the gutter's parent?
+                                // The gutter parent is overflow-hidden.
+                                // Best way: transform translateY or marginTop.
+                                gutter.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+                            }
+                        }}
+                        placeholder="Paste your content here..."
+                        className="flex-1 w-full p-4 whitespace-nowrap resize-none font-mono text-sm leading-6 outline-none bg-transparent text-foreground placeholder:text-muted-foreground/40"
+                        spellCheck={false}
+                    />
+                </div>
 
                 {/* Status badge */}
-                <div className={`absolute bottom-3 right-3 px-2 py-0.5 rounded text-[10px] font-medium tracking-wide uppercase transition-colors duration-150 ${isEmpty
-                    ? 'bg-muted text-muted-foreground/60'
+                <div className={`absolute bottom-3 right-3 px-2 py-0.5 rounded text-[10px] font-medium tracking-wide uppercase transition-colors duration-150 backdrop-blur-sm z-10 ${isEmpty
+                    ? 'bg-muted/80 text-muted-foreground/60'
                     : validation.isValid
                         ? 'bg-green-500/10 text-green-600 dark:text-green-400'
                         : 'bg-destructive/10 text-destructive'
@@ -157,14 +216,16 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
             </div>
 
             {/* Error message */}
-            {!validation.isValid && validation.error && (
-                <div className="mt-3 flex items-start gap-2 p-3 bg-destructive/5 border border-destructive/20 rounded-md">
-                    <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-destructive font-mono break-all leading-relaxed">
-                        {validation.error}
-                    </p>
-                </div>
-            )}
-        </div>
+            {
+                !validation.isValid && validation.error && (
+                    <div className="mt-3 flex items-start gap-2 p-3 bg-destructive/5 border border-destructive/20 rounded-md">
+                        <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-destructive font-mono break-all leading-relaxed">
+                            {validation.error}
+                        </p>
+                    </div>
+                )
+            }
+        </div >
     );
 };

@@ -5,7 +5,7 @@ JLens is a modern, privacy-focused universal data explorer designed for develope
 Built with a "Zero-Setup" philosophy, it offers a client-side only environment to validate, visualize, and manipulate data securely.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.2.0-green.svg)
 ![React](https://img.shields.io/badge/react-19-blue)
 
 ## ✨ Features
@@ -23,6 +23,11 @@ JLens is no longer just for JSON. It automatically detects and visualizes a wide
 
 ### ⚡ Developer Essentials
 - **Interactive Tree**: Deeply nested structures are easy to navigate with expand/collapse controls.
+- **Advanced Search**: 
+  - **Deep Matching**: Search keys and values across the entire JSON tree.
+  - **Focus Mode**: Automatically scrolls to and highlights the matching line.
+  - **Navigation**: Jump between matches with keyboard shortcuts (Enter / Shift+Enter).
+  
 - **Type Awareness**: distinct visual indicators for Strings, Numbers, Booleans, Nulls, and Objects.
 - **Export**: Download your data as a file or copy to clipboard instantly.
 - **Privacy First**: Fully client-side. No API calls, no tracking, no backend.

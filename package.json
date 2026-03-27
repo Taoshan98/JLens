@@ -29,7 +29,7 @@
     "remark-gfm": "^4.0.1",
     "smol-toml": "^1.6.0",
     "sql-formatter": "^15.7.0",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

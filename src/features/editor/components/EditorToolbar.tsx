@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Download, Trash2, Maximize2, Minimize2, Check } from 'lucide-react';
+import { Copy, Download, Trash2, Maximize2, Minimize2, Check, Clock, Globe } from 'lucide-react';
 import { FormatSelector } from './FormatSelector';
 import { Format } from '../../../types/formats';
 
@@ -9,11 +9,14 @@ interface EditorToolbarProps {
     onCopy: () => void;
     onDownload: () => void;
     onClear: () => void;
+    onHistory: () => void;
+    onImport: () => void;
     onFormatChange: (format: Format) => void;
     currentFormat: Format | undefined;
     detectedFormat: Format;
     isValid: boolean;
     isEmpty: boolean;
+    readOnly?: boolean;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -22,11 +25,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     onCopy,
     onDownload,
     onClear,
+    onHistory,
+    onImport,
     onFormatChange,
     currentFormat,
     detectedFormat,
     // isValid - unused now
     isEmpty,
+    readOnly = false,
 }) => {
     const [copyFeedback, setCopyFeedback] = useState(false);
 
@@ -43,30 +49,58 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     return (
         <div className="flex items-center justify-between p-2 border-b border-border bg-muted/20">
             <div className="flex items-center gap-1">
+                {!readOnly && (
+                    <>
+                        <button
+                            onClick={onImport}
+                            title="Import from URL"
+                            className={`${buttonBase} ${buttonEnabled}`}
+                        >
+                            <Globe size={14} />
+                            <span>Import</span>
+                        </button>
+                        <button
+                            onClick={onHistory}
+                            title="Session History"
+                            className={`${buttonBase} ${buttonEnabled}`}
+                        >
+                            <Clock size={14} />
+                            <span>History</span>
+                        </button>
+                        <div className="w-px h-4 bg-border mx-1" />
+                    </>
+                )}
+
                 <FormatSelector
                     value={currentFormat}
                     onChange={onFormatChange}
                     detectedFormat={detectedFormat}
+                    disabled={readOnly}
                 />
-                <div className="w-px h-4 bg-border mx-1" />
-                <button
-                    onClick={onPrettify}
-                    disabled={isEmpty}
-                    title="Format JSON"
-                    className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
-                >
-                    <Maximize2 size={14} />
-                    <span>Format</span>
-                </button>
-                <button
-                    onClick={onMinify}
-                    disabled={isEmpty}
-                    title="Minify JSON"
-                    className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
-                >
-                    <Minimize2 size={14} />
-                    <span>Minify</span>
-                </button>
+
+                {!readOnly && (
+                    <>
+                        <div className="w-px h-4 bg-border mx-1" />
+                        <button
+                            onClick={onPrettify}
+                            disabled={isEmpty}
+                            title="Format JSON"
+                            className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
+                        >
+                            <Maximize2 size={14} />
+                            <span>Format</span>
+                        </button>
+                        <button
+                            onClick={onMinify}
+                            disabled={isEmpty}
+                            title="Minify JSON"
+                            className={`${buttonBase} ${isEmpty ? buttonDisabled : buttonEnabled}`}
+                        >
+                            <Minimize2 size={14} />
+                            <span>Minify</span>
+                        </button>
+                    </>
+                )}
             </div>
 
             <div className="flex items-center gap-1">
@@ -87,15 +121,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 >
                     <Download size={14} />
                 </button>
-                <div className="w-px h-4 bg-border/50 mx-1" />
-                <button
-                    onClick={onClear}
-                    disabled={isEmpty}
-                    title="Clear editor"
-                    className={`${buttonBase} ${isEmpty ? buttonDisabled : 'text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-[0.98]'}`}
-                >
-                    <Trash2 size={14} />
-                </button>
+
+                {!readOnly && (
+                    <>
+                        <div className="w-px h-4 bg-border/50 mx-1" />
+                        <button
+                            onClick={onClear}
+                            disabled={isEmpty}
+                            title="Clear editor"
+                            className={`${buttonBase} ${isEmpty ? buttonDisabled : 'text-destructive/70 hover:text-destructive hover:bg-destructive/10 active:scale-[0.98]'}`}
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                    </>
+                )}
             </div>
         </div>
     );

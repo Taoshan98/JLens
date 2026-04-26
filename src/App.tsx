@@ -1,44 +1,40 @@
 import { useState } from 'react';
-import Split from 'react-split';
-import { JsonEditor as Editor } from './features/editor/components/Editor';
-import { UniversalViewer } from './features/viewer/components/UniversalViewer';
-import { Format } from './types/formats';
 import { Layout } from './components/layout/Layout';
+import type { ToolId } from './types';
+
+import { ViewerTool } from './features/viewer/components/ViewerTool';
+import { DiffTool } from './features/diff/components/DiffTool';
+import { CodeGenTool } from './features/codegen/components/CodeGenTool';
+import { JwtTool } from './features/jwt/components/JwtTool';
+import { ConverterTool } from './features/converter/components/ConverterTool';
 
 function App() {
-    const [parsedData, setParsedData] = useState<unknown | null>(null);
-    const [detectedFormat, setDetectedFormat] = useState<Format>(Format.TEXT);
+    const [activeTool, setActiveTool] = useState<ToolId>('viewer');
 
-    const handleParse = (data: unknown | null, format: Format) => {
-        setParsedData(data);
-        setDetectedFormat(format);
+    const renderTool = () => {
+        switch (activeTool) {
+            case 'viewer':
+                return <ViewerTool />;
+            case 'diff':
+                return <DiffTool />;
+            case 'codegen':
+                return <CodeGenTool />;
+            case 'jwt':
+                return <JwtTool />;
+            case 'converter':
+                return <ConverterTool />;
+            default:
+                return <ViewerTool />;
+        }
     };
 
     return (
-        <Layout>
-            <Split
-                className="flex h-[calc(100vh-7.5rem)]"
-                sizes={[50, 50]}
-                gutterSize={8}
-                gutterAlign="center"
-                snapOffset={30}
-                dragInterval={1}
-                direction="horizontal"
-                cursor="col-resize"
-            >
-                {/* Left Panel: Editor */}
-                <div className="h-full flex flex-col p-2 bg-background/50">
-                    <Editor onParse={handleParse} />
+        <Layout activeTool={activeTool} onSelect={(tool) => setActiveTool(tool)}>
+            <div className="flex h-[calc(100vh-7.5rem)]">
+                <div className="flex-1 overflow-hidden">
+                    {renderTool()}
                 </div>
-
-                {/* Right Panel: Viewer */}
-                <div className="h-full flex flex-col p-2 bg-background/50">
-                    <UniversalViewer
-                        data={parsedData}
-                        format={detectedFormat}
-                    />
-                </div>
-            </Split>
+            </div>
         </Layout>
     );
 }

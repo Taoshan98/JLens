@@ -4,41 +4,77 @@ import { EditorToolbar } from './EditorToolbar';
 import { AlertCircle } from 'lucide-react';
 import { FormatManager } from '../../../utils/formatManager';
 import { Format } from '../../../types/formats';
+import { useSessionHistory } from '../hooks/useSessionHistory';
+import { HistoryDialog } from './HistoryDialog';
+import { ImportUrlDialog } from './ImportUrlDialog';
 
-interface JsonEditorProps {
-    onParse: (data: unknown | null, format: Format) => void;
+interface EditorProps {
+    value?: string;
+    onChange?: (value: string) => void;
+    readOnly?: boolean;
+    onParse?: (data: unknown | null, format: Format) => void;
 }
 
-export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
-    const [input, setInput] = useState('');
+export const Editor: React.FC<EditorProps> = ({
+    value: controlledValue,
+    onChange,
+    readOnly = false,
+    onParse
+}) => {
+    const [internalInput, setInternalInput] = useState('');
+
+    // Determine the current value (controlled vs uncontrolled)
+    const input = controlledValue !== undefined ? controlledValue : internalInput;
+
     const [userFormat, setUserFormat] = useState<Format | undefined>(undefined); // explicit override
     const { validation, validate } = useFormatValidation();
+    const { history, addToHistory, clearHistory } = useSessionHistory();
+    const [showHistory, setShowHistory] = useState(false);
+    const [showImport, setShowImport] = useState(false);
 
-    // Auto-paste from clipboard on focus if empty
+    // Handle input change
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
+        if (controlledValue === undefined) {
+            setInternalInput(newValue);
+        }
+        if (onChange) {
+            onChange(newValue);
+        }
+    };
+
+    // Update input (for internal state or parent notification)
+    const updateInput = (newValue: string) => {
+        if (controlledValue === undefined) {
+            setInternalInput(newValue);
+        }
+        if (onChange) {
+            onChange(newValue);
+        }
+    };
+
+    // Auto-paste from clipboard on focus if empty (only if not readOnly)
     useEffect(() => {
+        if (readOnly) return;
+
         const checkClipboard = async () => {
-            // Safety: Only paste if input is completely empty to prevent data loss
             if (input.trim() !== '') return;
 
             try {
-                // Check permissions first? navigator.clipboard.readText() usually requires focus + permission
                 const text = await navigator.clipboard.readText();
                 if (text && text.trim().length > 0) {
-                    setInput(text);
-                    // We don't need to manually validate here because the input change effect will trigger it
+                    updateInput(text);
                 }
             } catch (err) {
-                // Silently fail if permission denied or clipboard empty/inaccessible
-                // This is expected in many contexts (iframe, background, etc)
+                // Silently fail
             }
         };
 
         window.addEventListener('focus', checkClipboard);
-        // Also try on mount (initial load)
         checkClipboard();
 
         return () => window.removeEventListener('focus', checkClipboard);
-    }, [input]); // Re-bind if input changes, but the check `input.trim() !== ''` handles the guard.
+    }, [input, readOnly]); // controlledValue dependence might be tricky, use input
 
     // Trigger validation when input or userFormat changes
     useEffect(() => {
@@ -49,66 +85,58 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
         return () => clearTimeout(timer);
     }, [input, userFormat, validate]);
 
-    // Notify parent of result
+    // Notify parent of result and save to history
     useEffect(() => {
         if (validation.isValid) {
-            onParse(validation.parsedData, validation.detectedFormat);
+            if (onParse) {
+                onParse(validation.parsedData, validation.detectedFormat);
+            }
+            // Add to history if valid and not empty, and NOT readonly
+            if (input.trim() && !readOnly) {
+                const historyTimer = setTimeout(() => {
+                    addToHistory(input, validation.detectedFormat);
+                }, 1000);
+                return () => clearTimeout(historyTimer);
+            }
         } else {
-            onParse(null, validation.detectedFormat);
+            if (onParse) {
+                onParse(null, validation.detectedFormat);
+            }
         }
-    }, [validation, onParse]);
+    }, [validation, onParse, input, addToHistory, readOnly]);
 
     const handlePrettify = () => {
-        // Attempt to prettify regardless of validation state (best effort)
+        if (readOnly) return;
         try {
-            // Case 1: We have valid parsed data (JSON, YAML, XML, etc.)
             if (validation.parsedData) {
                 const prettified = FormatManager.stringify(validation.parsedData, validation.detectedFormat);
-                setInput(prettified);
+                updateInput(prettified);
                 return;
             }
 
-            // Case 2: No parsed data, but it's a string-based format (HTML, SQL)
             if (validation.detectedFormat === Format.HTML || validation.detectedFormat === Format.SQL) {
                 const prettified = FormatManager.stringify(input, validation.detectedFormat);
-                setInput(prettified);
+                updateInput(prettified);
                 return;
             }
 
-            // Case 3: Invalid data (JSON/YAML)
-            // If it's invalid, we should NOT try to parse it strictly first, because that will throw and bypass the repair logic.
-            // FormatManager.stringify is designed to handle raw strings for YAML to attempt repair.
-
-            // For JSON, we might still want to try 'parse' to see if it works loosely? 
-            // My FormatManager.stringify(string) for JSON tries to parse and catch.
-            // So we can just universally call stringify with the input string if we don't have parsedData.
-
             const prettified = FormatManager.stringify(input, validation.detectedFormat);
-            setInput(prettified);
+            updateInput(prettified);
 
         } catch (e) {
-            // If completely fails, we just don't update input.
-            // Optional: User feedback could be added here, but the Error badge is already showing.
             console.warn("Formatting failed", e);
         }
     };
 
     const handleMinify = () => {
-        if (!input.trim()) return;
-
-        // Minify logic
+        if (readOnly || !input.trim()) return;
         try {
             if (validation.parsedData && validation.detectedFormat === Format.JSON) {
-                // Efficient JSON minify
                 const minified = FormatManager.minify(JSON.stringify(validation.parsedData), Format.JSON);
-                setInput(minified);
+                updateInput(minified);
             } else {
-                // For SQL, HTML, XML, or even invalid content if we can regex it
-                // FormatManager.minify uses regex for SQL/HTML/XML so it works on strings!
-                // For JSON, if invalid, minify logic does: try parse? catch return original.
-
                 const minified = FormatManager.minify(input, validation.detectedFormat);
-                setInput(minified);
+                updateInput(minified);
             }
         } catch (e) {
             console.warn("Minification failed", e);
@@ -122,7 +150,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
     const handleDownload = () => {
         if (!input) return;
         const ext = validation.detectedFormat === Format.TEXT ? 'txt' : validation.detectedFormat;
-        const mime = 'text/plain'; // Simplification, could get mime types from FORMATS
+        const mime = 'text/plain';
         const blob = new Blob([input], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -135,7 +163,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
     };
 
     const handleClear = () => {
-        setInput('');
+        updateInput('');
         setUserFormat(undefined);
     };
 
@@ -151,9 +179,9 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                     onCopy={handleCopy}
                     onDownload={handleDownload}
                     onClear={handleClear}
+                    onHistory={() => setShowHistory(true)}
+                    onImport={() => setShowImport(true)}
                     onFormatChange={(f) => {
-                        // If user selects empty/auto (though selector usually has values), handle it.
-                        // My selector has value="" for Auto.
                         if (!f) setUserFormat(undefined);
                         else setUserFormat(f);
                     }}
@@ -161,45 +189,35 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                     detectedFormat={validation.detectedFormat}
                     isValid={validation.isValid}
                     isEmpty={isEmpty}
+                    readOnly={readOnly}
                 />
 
                 <div className="flex-1 flex overflow-hidden relative">
                     {/* Line Numbers Gutter */}
                     <div
                         className="flex-shrink-0 bg-muted/20 border-r border-border py-4 pl-3 pr-3 text-right text-muted-foreground/30 font-mono text-sm select-none overflow-hidden"
-                        style={{ width: '3.5rem' }} // Fixed width for gutter
+                        style={{ width: '3.5rem' }}
                         aria-hidden="true"
                     >
-                        <div
-                            // No ref needed for now as we sync via ID
-                            id="editor-gutter"
-                            className="w-full"
-                        >
+                        <div id="editor-gutter" className="w-full">
                             {input.split('\n').map((_, i) => (
-                                <div key={i} className="leading-6 h-6">{i + 1}</div> // Leading-6 matches textarea line-height (1.5rem / 24px) usually?
-                                // Tailwind 'leading-relaxed' is 1.625, 'leading-6' is 1.5rem (24px). Textarea default? 
-                                // textarea has "text-sm", default leading is likely 1.25rem (20px).
-                                // Let's force specific leading on both.
+                                <div key={i} className="leading-6 h-6">{i + 1}</div>
                             ))}
                         </div>
                     </div>
 
                     <textarea
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={handleInputChange}
                         onScroll={(e) => {
                             const gutter = document.getElementById('editor-gutter');
                             if (gutter) {
-                                // Sync vertical scroll
-                                // The gutter container is overflow-hidden, so we transform or set top?
-                                // Actually, better to scroll the gutter's parent?
-                                // The gutter parent is overflow-hidden.
-                                // Best way: transform translateY or marginTop.
                                 gutter.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
                             }
                         }}
-                        placeholder="Paste your content here..."
-                        className="flex-1 w-full p-4 whitespace-nowrap resize-none font-mono text-sm leading-6 outline-none bg-transparent text-foreground placeholder:text-muted-foreground/40"
+                        readOnly={readOnly}
+                        placeholder={readOnly ? "No content" : "Paste your content here..."}
+                        className={`flex-1 w-full p-4 whitespace-nowrap resize-none font-mono text-sm leading-6 outline-none bg-transparent text-foreground placeholder:text-muted-foreground/40 ${readOnly ? 'cursor-text' : ''}`}
                         spellCheck={false}
                     />
                 </div>
@@ -215,7 +233,6 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                 </div>
             </div>
 
-            {/* Error message */}
             {
                 !validation.isValid && validation.error && (
                     <div className="mt-3 flex items-start gap-2 p-3 bg-destructive/5 border border-destructive/20 rounded-md">
@@ -226,6 +243,20 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                     </div>
                 )
             }
+
+            <HistoryDialog
+                isOpen={showHistory}
+                onClose={() => setShowHistory(false)}
+                history={history}
+                onRestore={updateInput}
+                onClear={clearHistory}
+            />
+
+            <ImportUrlDialog
+                isOpen={showImport}
+                onClose={() => setShowImport(false)}
+                onImport={updateInput}
+            />
         </div >
     );
 };

@@ -19,6 +19,15 @@ export class FormatManager {
         format: true
     });
 
+    private static htmlParser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+        allowBooleanAttributes: true,
+        htmlEntities: true,
+        unpairedTags: ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr", "!DOCTYPE"],
+        stopNodes: ["script", "style"]
+    });
+
     static detect(content: string): Format {
         const trimmed = content.trim();
         if (!trimmed) return Format.TEXT;
@@ -163,6 +172,10 @@ export class FormatManager {
                 return content.trim().split('\n').map(line => {
                     try { return JSON.parse(line); } catch { return null; }
                 }).filter(x => x !== null);
+            case Format.HTML:
+                // Strip doctype which might cause issues
+                const htmlContent = content.replace(/<!DOCTYPE.*?>/i, '');
+                return FormatManager.htmlParser.parse(htmlContent);
             default:
                 // For DOCUMENT and CODE formats, we just return the string itself or null
                 // because the Tree Viewer can't natively visualize a raw string nicely without structure.
@@ -219,6 +232,16 @@ export class FormatManager {
                     indent_size: 2,
                     wrap_line_length: 80
                 }) : '';
+            case Format.ENV:
+                if (typeof data === 'object' && data !== null) {
+                    return FormatManager.toEnvString(data);
+                }
+                return String(data);
+            case Format.MARKDOWN:
+                if (typeof data === 'object' && data !== null) {
+                    return FormatManager.toMarkdownString(data);
+                }
+                return String(data);
             default:
                 // For others, we might assume data is already string
                 if (typeof data === 'string') return data;
@@ -323,5 +346,63 @@ export class FormatManager {
                 // For other formats, naive whitespace collapse or return original
                 return content;
         }
+    }
+    private static toEnvString(data: any, prefix = ''): string {
+        let result = '';
+        for (const key in data) {
+            const value = data[key];
+            const newKey = prefix ? `${prefix}.${key}` : key;
+
+            if (typeof value === 'object' && value !== null) {
+                result += FormatManager.toEnvString(value, newKey);
+            } else {
+                result += `${newKey}=${String(value)}\n`;
+            }
+        }
+        return result;
+    }
+
+    private static toMarkdownString(data: any, depth = 1): string {
+        let result = '';
+
+        if (Array.isArray(data)) {
+            data.forEach(item => {
+                if (typeof item === 'object' && item !== null) {
+                    result += FormatManager.toMarkdownString(item, depth);
+                } else {
+                    result += `${'  '.repeat(depth - 1)}- ${String(item)}\n`;
+                }
+            });
+            return result;
+        }
+
+        for (const key in data) {
+            const value = data[key];
+            const headerPrefix = '#'.repeat(Math.min(depth + 1, 6)); // Start at ## (h2) for keys
+
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                // Formatting for object values (section)
+                if (key.startsWith('@_') || key === '#text') {
+                    // Special handling for XML/HTML attributes/text
+                    result += `${'  '.repeat(depth)}- **${key}**: ${String(value)}\n`;
+                } else {
+                    result += `\n${headerPrefix} ${key}\n\n`;
+                    result += FormatManager.toMarkdownString(value, depth + 1);
+                }
+            } else if (Array.isArray(value)) {
+                result += `\n${headerPrefix} ${key}\n\n`;
+                value.forEach(item => {
+                    if (typeof item === 'object' && item !== null) {
+                        result += FormatManager.toMarkdownString(item, depth + 1);
+                    } else {
+                        result += `- ${String(item)}\n`;
+                    }
+                });
+            } else {
+                // Scalar values
+                result += `- **${key}**: ${String(value)}\n`;
+            }
+        }
+        return result;
     }
 }

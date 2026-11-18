@@ -54,22 +54,20 @@ describe('typeGenerator', () => {
         expect(ts).toContain('items: Item[];');
     });
 
-    it('generates valid Draft 2020-12 JSON Schema', () => {
-        const input = {
-            count: 5,
-            ratio: 0.75,
-            tags: ['json', 'yaml'],
-        };
+    it('generates valid Draft 2020-12 JSON Schema and handles large arrays efficiently', () => {
+        const largeRows = Array.from({ length: 2500 }, (_, i) => ({
+            id: i,
+            score: i % 2 === 0 ? i : i + 0.5,
+            label: `item-${i}`,
+        }));
 
-        const schema = JSON.parse(generateJsonSchema(input, 'Payload'));
+        const schema = JSON.parse(generateJsonSchema(largeRows, 'LargePayload'));
         expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
-        expect(schema.title).toBe('Payload');
-        expect(schema.properties.count.type).toBe('integer');
-        expect(schema.properties.ratio.type).toBe('number');
-        expect(schema.properties.tags).toEqual({
-            type: 'array',
-            items: { type: 'string' },
-        });
-        expect(schema.required).toEqual(['count', 'ratio', 'tags']);
+        expect(schema.title).toBe('LargePayload');
+        expect(schema.type).toBe('array');
+        expect(schema.items.properties.id.type).toBe('integer');
+        expect(schema.items.properties.score.type).toBe('number');
+        expect(schema.items.properties.label.type).toBe('string');
+        expect(schema.items.required).toEqual(['id', 'score', 'label']);
     });
 });

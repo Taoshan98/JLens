@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { FormatManager } from '../../../utils/formatManager';
 import { Format } from '../../../types/formats';
 
@@ -16,8 +16,11 @@ export const useFormatValidation = () => {
         parsedData: null,
         detectedFormat: Format.TEXT,
     });
+    const requestIdRef = useRef(0);
 
-    const validate = useCallback((content: string, explicitFormat?: Format) => {
+    const validate = useCallback(async (content: string, explicitFormat?: Format) => {
+        const reqId = ++requestIdRef.current;
+
         if (!content.trim()) {
             setValidation({
                 isValid: true,
@@ -31,7 +34,9 @@ export const useFormatValidation = () => {
         const format = explicitFormat || FormatManager.detect(content);
 
         try {
-            const parsed = FormatManager.parse(content, format);
+            const parsed = await FormatManager.parseAsync(content, format);
+            if (requestIdRef.current !== reqId) return;
+
             setValidation({
                 isValid: true,
                 error: null,
@@ -39,6 +44,8 @@ export const useFormatValidation = () => {
                 detectedFormat: format,
             });
         } catch (err) {
+            if (requestIdRef.current !== reqId) return;
+
             setValidation({
                 isValid: false,
                 error: err instanceof Error ? err.message : `Invalid ${format}`,

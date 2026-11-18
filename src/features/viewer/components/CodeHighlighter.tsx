@@ -1,5 +1,5 @@
 import React from 'react';
-import { PrismLight } from 'react-syntax-highlighter';
+import PrismLight from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';

@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useFormatValidation } from '../hooks/useFormatValidation';
-import { EditorToolbar } from './EditorToolbar';
 import { AlertCircle, Upload } from 'lucide-react';
+import { useFormatValidation } from '../hooks/useFormatValidation';
+import { useEditorHistory } from '../hooks/useEditorHistory';
+import { useCopyFeedback } from '../../../hooks/useCopyFeedback';
+import { EditorToolbar } from './EditorToolbar';
+import { EditorGutter } from './EditorGutter';
+import { EditorStatusBar } from './EditorStatusBar';
 import { FormatManager } from '../../../utils/formatManager';
+import { formatByteSize } from '../../../utils/guards';
 import { Format, FORMATS } from '../../../types/formats';
 
 interface JsonEditorProps {
     onParse: (data: unknown | null, format: Format) => void;
-}
-
-interface HistoryEntry {
-    content: string;
-    format: Format | undefined;
 }
 
 const SAMPLE_JSON = `{
@@ -29,16 +29,6 @@ const SAMPLE_JSON = `{
   }
 }`;
 
-const MAX_HISTORY = 25;
-const MAX_GUTTER_LINES = 15000;
-
-function formatByteSize(text: string): string {
-    const bytes = new Blob([text]).size;
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
 function formatFromExtension(filename: string): Format | undefined {
     const lower = filename.toLowerCase();
     for (const def of Object.values(FORMATS)) {
@@ -52,18 +42,36 @@ function formatFromExtension(filename: string): Format | undefined {
 export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
     const [input, setInput] = useState('');
     const [userFormat, setUserFormat] = useState<Format | undefined>(undefined);
-    const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [actionError, setActionError] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const [scrollTop, setScrollTop] = useState(0);
+    const [viewportHeight, setViewportHeight] = useState(600);
 
     const { validation, validate } = useFormatValidation();
+    const { canUndo, push: pushHistory, pop: popHistory } = useEditorHistory();
+    const { copiedKey, copyText } = useCopyFeedback();
+
     const gutterRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const lastEditProgrammaticRef = useRef(false);
 
     useEffect(() => {
+        const el = textareaRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry) {
+                setViewportHeight(entry.contentRect.height);
+            }
+        });
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
         const timer = setTimeout(() => {
-            validate(input, userFormat);
+            void validate(input, userFormat);
         }, 300);
 
         return () => clearTimeout(timer);
@@ -77,14 +85,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
         }
     }, [validation, onParse]);
 
-    const pushHistory = (entry: HistoryEntry) => {
-        setHistory((prev) => [...prev.slice(-(MAX_HISTORY - 1)), entry]);
-    };
-
-    const applyProgrammaticUpdate = (
-        nextContent: string,
-        nextFormat?: Format | null
-    ) => {
+    const applyProgrammaticUpdate = (nextContent: string, nextFormat?: Format | null) => {
         pushHistory({ content: input, format: userFormat });
         lastEditProgrammaticRef.current = true;
         setInput(nextContent);
@@ -97,29 +98,26 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
     };
 
     const handleUndo = () => {
-        if (history.length === 0) return;
-        const previous = history[history.length - 1];
-        setHistory((prev) => prev.slice(0, -1));
+        const previous = popHistory();
+        if (!previous) return;
         setInput(previous.content);
         setUserFormat(previous.format);
         setActionError(null);
     };
 
-    const resolveActiveFormat = (): Format => {
-        return userFormat ?? FormatManager.detect(input);
-    };
+    const resolveActiveFormat = (): Format => userFormat ?? FormatManager.detect(input);
 
-    const handlePrettify = () => {
+    const handlePrettify = async () => {
         if (!input.trim()) return;
         const activeFormat = resolveActiveFormat();
 
         try {
             let prettified: string;
             try {
-                const parsed = FormatManager.parse(input, activeFormat);
-                prettified = FormatManager.stringify(parsed, activeFormat);
+                const parsed = await FormatManager.parseAsync(input, activeFormat);
+                prettified = await FormatManager.stringifyAsync(parsed, activeFormat);
             } catch {
-                prettified = FormatManager.stringify(input, activeFormat);
+                prettified = await FormatManager.stringifyAsync(input, activeFormat);
             }
 
             if (prettified && prettified !== input) {
@@ -148,13 +146,13 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
         }
     };
 
-    const handleConvert = (targetFormat: Format) => {
+    const handleConvert = async (targetFormat: Format) => {
         if (!input.trim()) return;
         const activeFormat = resolveActiveFormat();
 
         try {
-            const parsed = FormatManager.parse(input, activeFormat);
-            const converted = FormatManager.convert(parsed, targetFormat);
+            const parsed = await FormatManager.parseAsync(input, activeFormat);
+            const converted = await FormatManager.convertAsync(parsed, targetFormat);
             applyProgrammaticUpdate(converted, targetFormat);
         } catch (err) {
             setActionError(
@@ -163,14 +161,12 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
         }
     };
 
-    const handleCopy = async (): Promise<boolean> => {
-        try {
-            await navigator.clipboard.writeText(input);
+    const handleCopy = async () => {
+        const ok = await copyText(input);
+        if (ok) {
             setActionError(null);
-            return true;
-        } catch {
+        } else {
             setActionError('Clipboard write failed. Select text and press Ctrl+C / Cmd+C.');
-            return false;
         }
     };
 
@@ -178,11 +174,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
         try {
             const text = await navigator.clipboard.readText();
             if (text) {
-                pushHistory({ content: input, format: userFormat });
-                lastEditProgrammaticRef.current = true;
-                setInput(text);
-                setUserFormat(undefined);
-                setActionError(null);
+                applyProgrammaticUpdate(text, null);
             }
         } catch {
             setActionError('Clipboard read blocked by browser. Paste directly using Ctrl+V / Cmd+V.');
@@ -192,31 +184,10 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
     const loadFileObject = async (file: File) => {
         try {
             const text = await file.text();
-            const inferredFromExt = formatFromExtension(file.name);
-            pushHistory({ content: input, format: userFormat });
-            lastEditProgrammaticRef.current = true;
-            setInput(text);
-            setUserFormat(inferredFromExt);
-            setActionError(null);
+            const inferred = formatFromExtension(file.name);
+            applyProgrammaticUpdate(text, inferred ?? null);
         } catch {
             setActionError(`Failed to read file "${file.name}".`);
-        }
-    };
-
-    const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            void loadFileObject(file);
-        }
-        e.target.value = '';
-    };
-
-    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) {
-            void loadFileObject(file);
         }
     };
 
@@ -239,31 +210,18 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
 
     const handleClear = () => {
         if (!input && userFormat === undefined) return;
-        pushHistory({ content: input, format: userFormat });
-        lastEditProgrammaticRef.current = true;
-        setInput('');
-        setUserFormat(undefined);
-        setActionError(null);
-    };
-
-    const handleLoadSample = () => {
-        applyProgrammaticUpdate(SAMPLE_JSON, null);
+        applyProgrammaticUpdate('', null);
     };
 
     const isEmpty = input.trim() === '';
     const activeFormat = userFormat ?? validation.detectedFormat;
-    const canFormat = FormatManager.canFormat(activeFormat);
-    const canMinify = FormatManager.canMinify(activeFormat);
     const convertibleTargets = useMemo(() => {
         if (!validation.isValid) return [];
         return FormatManager.getConvertibleTargets(activeFormat, validation.parsedData);
     }, [validation.isValid, validation.parsedData, activeFormat]);
 
     const lineCount = useMemo(() => (input ? input.split('\n').length : 1), [input]);
-    const gutterLineCount = Math.min(lineCount, MAX_GUTTER_LINES);
-    const gutterWidth = `${Math.max(3, String(lineCount).length + 1.5)}ch`;
-    const byteSize = useMemo(() => formatByteSize(input), [input]);
-
+    const byteSizeLabel = useMemo(() => formatByteSize(input), [input]);
     const displayError = actionError || (!validation.isValid ? validation.error : null);
 
     return (
@@ -278,7 +236,12 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                         setIsDragging(false);
                     }
                 }}
-                onDrop={handleDrop}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) void loadFileObject(file);
+                }}
                 className={`flex-1 min-h-0 flex flex-col relative rounded-lg border bg-card overflow-hidden transition-colors duration-150 ${
                     isDragging
                         ? 'border-primary ring-2 ring-primary/20'
@@ -289,48 +252,52 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                     ref={fileInputRef}
                     type="file"
                     accept=".json,.yaml,.yml,.xml,.toml,.csv,.ini,.env,.jsonl,.ndjson,.md,.markdown,.html,.htm,.sql,.txt"
-                    onChange={handleFileInputChange}
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void loadFileObject(file);
+                        e.target.value = '';
+                    }}
                     className="hidden"
                 />
 
                 <EditorToolbar
-                    onPrettify={handlePrettify}
-                    onMinify={handleMinify}
-                    onCopy={handleCopy}
-                    onPaste={handlePaste}
-                    onOpenFile={() => fileInputRef.current?.click()}
-                    onLoadSample={handleLoadSample}
-                    onUndo={handleUndo}
-                    onDownload={handleDownload}
-                    onClear={handleClear}
-                    onFormatChange={setUserFormat}
-                    onConvert={handleConvert}
-                    convertibleTargets={convertibleTargets}
-                    currentFormat={userFormat}
-                    detectedFormat={validation.detectedFormat}
-                    canFormat={canFormat}
-                    canMinify={canMinify}
-                    canUndo={history.length > 0}
-                    isEmpty={isEmpty}
+                    formatState={{
+                        currentFormat: userFormat,
+                        detectedFormat: validation.detectedFormat,
+                        convertibleTargets,
+                    }}
+                    capabilities={{
+                        canFormat: FormatManager.canFormat(activeFormat),
+                        canMinify: FormatManager.canMinify(activeFormat),
+                        canUndo,
+                        isEmpty,
+                        isCopied: copiedKey !== null,
+                    }}
+                    actions={{
+                        onPrettify: () => void handlePrettify(),
+                        onMinify: handleMinify,
+                        onCopy: () => void handleCopy(),
+                        onPaste: () => void handlePaste(),
+                        onOpenFile: () => fileInputRef.current?.click(),
+                        onLoadSample: () => applyProgrammaticUpdate(SAMPLE_JSON, null),
+                        onUndo: handleUndo,
+                        onDownload: handleDownload,
+                        onClear: handleClear,
+                        onFormatChange: setUserFormat,
+                        onConvert: (target) => void handleConvert(target),
+                    }}
                 />
 
                 <div className="flex-1 min-h-0 flex overflow-hidden relative">
-                    {/* Line Numbers Gutter */}
-                    <div
-                        className="flex-shrink-0 bg-muted/20 border-r border-border py-4 px-2.5 text-right text-muted-foreground/40 font-mono text-sm select-none overflow-hidden"
-                        style={{ width: gutterWidth, boxSizing: 'content-box' }}
-                        aria-hidden="true"
-                    >
-                        <div ref={gutterRef} className="w-full pb-8">
-                            {Array.from({ length: gutterLineCount }, (_, i) => (
-                                <div key={i} className="leading-6 h-6">
-                                    {i + 1}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    <EditorGutter
+                        lineCount={lineCount}
+                        scrollTop={scrollTop}
+                        viewportHeight={viewportHeight}
+                        gutterRef={gutterRef}
+                    />
 
                     <textarea
+                        ref={textareaRef}
                         value={input}
                         aria-label="Data editor input"
                         onChange={(e) => {
@@ -344,7 +311,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                                 !e.shiftKey &&
                                 e.key.toLowerCase() === 'z' &&
                                 lastEditProgrammaticRef.current &&
-                                history.length > 0
+                                canUndo
                             ) {
                                 e.preventDefault();
                                 handleUndo();
@@ -352,9 +319,11 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                             }
                         }}
                         onScroll={(e) => {
+                            const top = e.currentTarget.scrollTop;
                             if (gutterRef.current) {
-                                gutterRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+                                gutterRef.current.style.transform = `translateY(-${top}px)`;
                             }
+                            setScrollTop(top);
                         }}
                         placeholder="Paste content, drop a file, or click Sample..."
                         className="flex-1 w-full p-4 pb-8 whitespace-nowrap resize-none font-mono text-sm leading-6 outline-none bg-transparent text-foreground placeholder:text-muted-foreground/40"
@@ -369,27 +338,13 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({ onParse }) => {
                     )}
                 </div>
 
-                {/* Status Bar */}
-                <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-muted/15 text-[11px] shrink-0">
-                    <span className="font-mono text-muted-foreground">
-                        {lineCount} {lineCount === 1 ? 'line' : 'lines'} · {byteSize}
-                    </span>
-                    <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-medium tracking-wide uppercase ${
-                            isEmpty
-                                ? 'bg-muted/80 text-muted-foreground/70'
-                                : validation.isValid
-                                ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                                : 'bg-destructive/10 text-destructive'
-                        }`}
-                    >
-                        {isEmpty
-                            ? 'Empty'
-                            : validation.isValid
-                            ? `${validation.detectedFormat} (Valid)`
-                            : `${validation.detectedFormat} (Invalid)`}
-                    </span>
-                </div>
+                <EditorStatusBar
+                    lineCount={lineCount}
+                    byteSizeLabel={byteSizeLabel}
+                    isEmpty={isEmpty}
+                    isValid={validation.isValid}
+                    detectedFormat={validation.detectedFormat}
+                />
             </div>
 
             {displayError && (

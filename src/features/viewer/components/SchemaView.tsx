@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { generateJsonSchema, generateTypeScript } from '../../../utils/typeGenerator';
 import { CodeHighlighter } from './CodeHighlighter';
+import { useCopyFeedback } from '../../../hooks/useCopyFeedback';
 
 interface SchemaViewProps {
     data: unknown;
@@ -12,7 +13,7 @@ type SchemaMode = 'typescript' | 'json-schema';
 export const SchemaView: React.FC<SchemaViewProps> = ({ data }) => {
     const [mode, setMode] = useState<SchemaMode>('typescript');
     const [rootName, setRootName] = useState('Root');
-    const [copied, setCopied] = useState(false);
+    const { copiedKey, copyText } = useCopyFeedback();
 
     const safeRootName = rootName.trim() || 'Root';
 
@@ -22,16 +23,6 @@ export const SchemaView: React.FC<SchemaViewProps> = ({ data }) => {
         }
         return generateJsonSchema(data, safeRootName);
     }, [data, mode, safeRootName]);
-
-    const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(output);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-        } catch {
-            /* ignore clipboard errors */
-        }
-    };
 
     return (
         <div className="flex flex-col h-full rounded-lg border border-border bg-card overflow-hidden">
@@ -74,13 +65,13 @@ export const SchemaView: React.FC<SchemaViewProps> = ({ data }) => {
                     </label>
                     <button
                         type="button"
-                        onClick={handleCopy}
+                        onClick={() => void copyText(output)}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-border bg-muted/20 hover:bg-accent transition-colors ${
-                            copied ? 'text-green-600 dark:text-green-400' : 'text-foreground'
+                            copiedKey ? 'text-green-600 dark:text-green-400' : 'text-foreground'
                         }`}
                     >
-                        {copied ? <Check size={13} /> : <Copy size={13} />}
-                        <span>{copied ? 'Copied' : 'Copy'}</span>
+                        {copiedKey ? <Check size={13} /> : <Copy size={13} />}
+                        <span>{copiedKey ? 'Copied' : 'Copy'}</span>
                     </button>
                 </div>
             </div>

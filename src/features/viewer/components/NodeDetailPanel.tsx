@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { toJqPath, toJsonPath } from '../../../utils/jsonPath';
+import { useCopyFeedback } from '../../../hooks/useCopyFeedback';
 
 export interface NodeDetail {
     key: string;
@@ -14,10 +15,10 @@ interface NodeDetailPanelProps {
     rootData?: unknown;
 }
 
-type CopiedTarget = 'path' | 'jq' | 'value' | null;
+type CopiedTarget = 'path' | 'jq' | 'value';
 
 export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ selectedNode, rootData }) => {
-    const [copiedTarget, setCopiedTarget] = useState<CopiedTarget>(null);
+    const { copiedKey, copyText } = useCopyFeedback<CopiedTarget>();
 
     const jsonPath = useMemo(() => {
         if (!selectedNode) return '$';
@@ -73,16 +74,6 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ selectedNode, 
         );
     }
 
-    const handleCopy = async (target: Exclude<CopiedTarget, null>, text: string) => {
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopiedTarget(target);
-            setTimeout(() => setCopiedTarget(null), 1500);
-        } catch {
-            /* ignore clipboard errors */
-        }
-    };
-
     const serializedValue =
         typeof selectedNode.value === 'string'
             ? selectedNode.value
@@ -106,35 +97,41 @@ export const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ selectedNode, 
                 <div className="flex items-center gap-1 shrink-0">
                     <button
                         type="button"
-                        onClick={() => handleCopy('path', jsonPath)}
+                        onClick={() => void copyText(jsonPath, 'path')}
                         title={`Copy JSONPath: ${jsonPath}`}
                         className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-border bg-muted/20 hover:bg-accent transition-colors ${
-                            copiedTarget === 'path' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground hover:text-foreground'
+                            copiedKey === 'path'
+                                ? 'text-green-600 dark:text-green-400'
+                                : 'text-muted-foreground hover:text-foreground'
                         }`}
                     >
-                        {copiedTarget === 'path' ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedKey === 'path' ? <Check size={11} /> : <Copy size={11} />}
                         <span>Path</span>
                     </button>
                     <button
                         type="button"
-                        onClick={() => handleCopy('jq', jqPath)}
+                        onClick={() => void copyText(jqPath, 'jq')}
                         title={`Copy jq selector: ${jqPath}`}
                         className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-border bg-muted/20 hover:bg-accent transition-colors ${
-                            copiedTarget === 'jq' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground hover:text-foreground'
+                            copiedKey === 'jq'
+                                ? 'text-green-600 dark:text-green-400'
+                                : 'text-muted-foreground hover:text-foreground'
                         }`}
                     >
-                        {copiedTarget === 'jq' ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedKey === 'jq' ? <Check size={11} /> : <Copy size={11} />}
                         <span>jq</span>
                     </button>
                     <button
                         type="button"
-                        onClick={() => handleCopy('value', serializedValue)}
+                        onClick={() => void copyText(serializedValue, 'value')}
                         title="Copy node value"
                         className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded border border-border bg-muted/20 hover:bg-accent transition-colors ${
-                            copiedTarget === 'value' ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground hover:text-foreground'
+                            copiedKey === 'value'
+                                ? 'text-green-600 dark:text-green-400'
+                                : 'text-muted-foreground hover:text-foreground'
                         }`}
                     >
-                        {copiedTarget === 'value' ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedKey === 'value' ? <Check size={11} /> : <Copy size={11} />}
                         <span>Value</span>
                     </button>
                 </div>

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import Split from 'react-split';
 import { JsonEditor as Editor } from './features/editor/components/Editor';
 import { UniversalViewer } from './features/viewer/components/UniversalViewer';
 import { Format } from './types/formats';
 import { Layout } from './components/layout/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ResizableSplit } from './components/ResizableSplit';
 
 function App() {
     const [parsedData, setParsedData] = useState<unknown | null>(null);
@@ -88,25 +88,25 @@ function App() {
                         </div>
                     </div>
                 ) : (
-                    <Split
-                        className="flex h-full py-2"
-                        sizes={[50, 50]}
-                        minSize={240}
-                        gutterSize={10}
-                        gutterAlign="center"
-                        snapOffset={30}
-                        dragInterval={1}
+                    <ResizableSplit
                         direction="horizontal"
-                        cursor="col-resize"
-                    >
-                        <div className="h-full min-h-0 flex flex-col pr-1 bg-background/50">
-                            <Editor onParse={handleParse} />
-                        </div>
-
-                        <div className="h-full min-h-0 flex flex-col pl-1 bg-background/50">
-                            <UniversalViewer data={parsedData} format={detectedFormat} />
-                        </div>
-                    </Split>
+                        initialRatio={0.5}
+                        minFirstPx={240}
+                        minSecondPx={240}
+                        gutterSize={10}
+                        ariaLabel="Resize editor and viewer"
+                        className="h-full py-2"
+                        first={
+                            <div className="h-full min-h-0 flex flex-col pr-1 bg-background/50">
+                                <Editor onParse={handleParse} />
+                            </div>
+                        }
+                        second={
+                            <div className="h-full min-h-0 flex flex-col pl-1 bg-background/50">
+                                <UniversalViewer data={parsedData} format={detectedFormat} />
+                            </div>
+                        }
+                    />
                 )}
             </ErrorBoundary>
         </Layout>

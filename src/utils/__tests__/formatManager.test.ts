@@ -12,6 +12,11 @@ describe('FormatManager.detect', () => {
         expect(FormatManager.detect('[1, 2, 3]')).toBe(Format.JSON);
     });
 
+    it('detects large payloads via bounded sampling without slowing down', () => {
+        const huge = `{"items": [${Array.from({ length: 5000 }, (_, i) => `{"id":${i}}`).join(',')}]}`;
+        expect(FormatManager.detect(huge)).toBe(Format.JSON);
+    });
+
     it('detects JSONL (NDJSON) including lines with errors when majority parse', () => {
         const jsonl = '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}';
         expect(FormatManager.detect(jsonl)).toBe(Format.JSONL);
@@ -38,6 +43,9 @@ describe('FormatManager.detect', () => {
 
         const semiCsv = 'id;title;done\n1;Task A;true\n2;Task B;false';
         expect(FormatManager.detect(semiCsv)).toBe(Format.CSV);
+
+        const quotedCsv = '"name, full",role\n"Ada, L.",Engineer\n"Linus, T.",Maintainer';
+        expect(FormatManager.detect(quotedCsv)).toBe(Format.CSV);
 
         const proseWithCommas = 'Hello, world!\nGoodbye, world!';
         expect(FormatManager.detect(proseWithCommas)).toBe(Format.TEXT);
@@ -74,14 +82,23 @@ describe('FormatManager.detect', () => {
     });
 });
 
-describe('FormatManager.parse', () => {
-    it('throws detailed error for malformed XML via XMLValidator', () => {
-        expect(() => FormatManager.parse('<root><unclosed>', Format.XML)).toThrow(/XML Error/);
+describe('FormatManager.parseAsync & detectAndParseAsync', () => {
+    it('detects and parses in a single pass', async () => {
+        const res = await FormatManager.detectAndParseAsync('{"ok": true, "n": 42}');
+        expect(res.format).toBe(Format.JSON);
+        expect(res.data).toEqual({ ok: true, n: 42 });
     });
 
-    it('parses ENV ignoring comments, unwrapping quotes, and stripping inline comments', () => {
-        const env = '# PORT=9999\nexport APP_NAME="JLens App"\nAPI_KEY=\'secret\'\nPORT=3000 # local port';
-        const parsed = FormatManager.parse(env, Format.ENV) as Record<string, string>;
+    it('throws detailed error for malformed XML via XMLValidator', async () => {
+        await expect(FormatManager.parseAsync('<root><unclosed>', Format.XML)).rejects.toThrow(
+            /XML Error/
+        );
+    });
+
+    it('parses ENV ignoring comments, unwrapping quotes, and stripping inline comments', async () => {
+        const env =
+            '# PORT=9999\nexport APP_NAME="JLens App"\nAPI_KEY=\'secret\'\nPORT=3000 # local port';
+        const parsed = (await FormatManager.parseAsync(env, Format.ENV)) as Record<string, string>;
         expect(parsed).toEqual({
             APP_NAME: 'JLens App',
             API_KEY: 'secret',
@@ -90,36 +107,48 @@ describe('FormatManager.parse', () => {
         expect(parsed['# PORT']).toBeUndefined();
     });
 
-    it('throws on invalid JSONL line and preserves literal null values', () => {
+    it('throws on invalid JSONL line and preserves literal null values', async () => {
         const valid = '{"ok":true}\nnull\n42';
-        expect(FormatManager.parse(valid, Format.JSONL)).toEqual([{ ok: true }, null, 42]);
+        await expect(FormatManager.parseAsync(valid, Format.JSONL)).resolves.toEqual([
+            { ok: true },
+            null,
+            42,
+        ]);
 
         const invalid = '{"ok":true}\n{broken}';
-        expect(() => FormatManager.parse(invalid, Format.JSONL)).toThrow(/line 2/);
+        await expect(FormatManager.parseAsync(invalid, Format.JSONL)).rejects.toThrow(/line 2/);
     });
 });
 
-describe('FormatManager.stringify & minify', () => {
-    it('formats and minifies ENV and JSONL without turning them into JSON', () => {
+describe('FormatManager.stringifyAsync & minify', () => {
+    it('formats and minifies ENV and JSONL without turning them into JSON', async () => {
         const envObj = { PORT: 3000, APP_NAME: 'My App' };
-        expect(FormatManager.stringify(envObj, Format.ENV)).toBe('PORT=3000\nAPP_NAME="My App"');
+        await expect(FormatManager.stringifyAsync(envObj, Format.ENV)).resolves.toBe(
+            'PORT=3000\nAPP_NAME="My App"'
+        );
 
         const rawEnv = '# comment\n\n  PORT = 3000 \nHOST = localhost ';
         expect(FormatManager.minify(rawEnv, Format.ENV)).toBe('PORT=3000\nHOST=localhost');
 
         const jsonl = '  { "a": 1 } \n\n [1, 2] ';
         expect(FormatManager.minify(jsonl, Format.JSONL)).toBe('{"a":1}\n[1,2]');
-        expect(FormatManager.stringify([{ a: 1 }, { b: 2 }], Format.JSONL)).toBe(
-            '{"a":1}\n{"b":2}'
-        );
+        await expect(
+            FormatManager.stringifyAsync([{ a: 1 }, { b: 2 }], Format.JSONL)
+        ).resolves.toBe('{"a":1}\n{"b":2}');
     });
 
-    it('repairs scalar indentation bug in YAML', () => {
+    it('repairs scalar indentation bug in YAML', async () => {
         const brokenYaml = 'name: app\n  version: 1.0\n  nested:\n    enabled: true';
-        const formatted = FormatManager.stringify(brokenYaml, Format.YAML);
+        const formatted = await FormatManager.stringifyAsync(brokenYaml, Format.YAML);
         expect(formatted).toContain('name: app');
         expect(formatted).toContain('version: 1');
         expect(formatted).toContain('enabled: true');
+    });
+
+    it('formats HTML cleanly without js-beautify while preserving <pre>', async () => {
+        const html = '<div><p>Hello</p><br><pre>  keep\n  indent</pre></div>';
+        const formatted = await FormatManager.stringifyAsync(html, Format.HTML);
+        expect(formatted).toContain('<div>\n  <p>Hello</p>\n  <br>\n  <pre>  keep\n  indent</pre>\n</div>');
     });
 
     it('minifies SQL without stripping string literal contents', () => {
@@ -137,25 +166,25 @@ describe('FormatManager.stringify & minify', () => {
     });
 });
 
-describe('FormatManager.convert', () => {
-    it('converts structured JSON data to YAML, TOML (stripping nulls), CSV, XML, and ENV', () => {
+describe('FormatManager.convertAsync', () => {
+    it('converts structured JSON data to YAML, TOML (stripping nulls), CSV, XML, and ENV', async () => {
         const sample = {
             app: { name: 'JLens', port: 3000, optional: null },
             debug: true,
         };
 
-        const yamlOut = FormatManager.convert(sample, Format.YAML);
-        expect(FormatManager.parse(yamlOut, Format.YAML)).toEqual(sample);
+        const yamlOut = await FormatManager.convertAsync(sample, Format.YAML);
+        await expect(FormatManager.parseAsync(yamlOut, Format.YAML)).resolves.toEqual(sample);
 
-        const tomlOut = FormatManager.convert(sample, Format.TOML);
+        const tomlOut = await FormatManager.convertAsync(sample, Format.TOML);
         expect(tomlOut).toContain('name = "JLens"');
         expect(tomlOut).not.toContain('optional');
 
-        const xmlOut = FormatManager.convert(sample, Format.XML);
+        const xmlOut = await FormatManager.convertAsync(sample, Format.XML);
         expect(xmlOut).toContain('<root>');
         expect(xmlOut).toContain('<name>JLens</name>');
 
-        const envOut = FormatManager.convert(sample, Format.ENV);
+        const envOut = await FormatManager.convertAsync(sample, Format.ENV);
         expect(envOut).toContain('APP_NAME=JLens');
         expect(envOut).toContain('APP_PORT=3000');
         expect(envOut).toContain('DEBUG=true');
@@ -164,7 +193,7 @@ describe('FormatManager.convert', () => {
             { id: 1, name: 'Ada' },
             { id: 2, name: 'Linus' },
         ];
-        const csvOut = FormatManager.convert(rows, Format.CSV);
+        const csvOut = await FormatManager.convertAsync(rows, Format.CSV);
         expect(csvOut).toContain('id,name');
         expect(csvOut).toContain('1,Ada');
     });

@@ -1,7 +1,11 @@
-const VALID_TS_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+import { isPlainObject } from './guards';
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+const VALID_TS_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const MAX_ARRAY_SAMPLES = 500;
+
+function sampleArray<T>(items: T[]): T[] {
+    if (items.length <= MAX_ARRAY_SAMPLES) return items;
+    return [...items.slice(0, 400), ...items.slice(-100)];
 }
 
 function toPascalCase(raw: string, fallback = 'Item'): string {
@@ -49,13 +53,6 @@ function allocateUniqueName(baseName: string, usedNames: Set<string>): string {
     const unique = `${candidate}${suffix}`;
     usedNames.add(unique);
     return unique;
-}
-
-function dedupeTypes(types: string[]): string {
-    const unique = Array.from(new Set(types));
-    if (unique.length === 0) return 'unknown';
-    if (unique.length === 1) return unique[0];
-    return unique.join(' | ');
 }
 
 function wrapUnionForArray(typeExpr: string): string {
@@ -110,30 +107,30 @@ export function generateTypeScript(data: unknown, rootName = 'Root'): string {
     const inferFromSamples = (samples: unknown[], hintName: string): string => {
         const objectSamples: Record<string, unknown>[] = [];
         const arraySamples: unknown[][] = [];
-        const primitiveTypes: string[] = [];
+        const primitiveSet = new Set<string>();
 
         for (const sample of samples) {
             if (sample === null) {
-                primitiveTypes.push('null');
+                primitiveSet.add('null');
             } else if (sample === undefined) {
-                primitiveTypes.push('undefined');
+                primitiveSet.add('undefined');
             } else if (Array.isArray(sample)) {
                 arraySamples.push(sample);
             } else if (isPlainObject(sample)) {
                 objectSamples.push(sample);
             } else {
-                primitiveTypes.push(typeof sample);
+                primitiveSet.add(typeof sample);
             }
         }
 
-        const types = [...primitiveTypes];
+        const types = Array.from(primitiveSet);
 
         if (objectSamples.length > 0) {
             types.push(inferObjectInterface(objectSamples, hintName));
         }
 
         if (arraySamples.length > 0) {
-            const flatItems = arraySamples.flat();
+            const flatItems = sampleArray(arraySamples.flat());
             if (flatItems.length === 0) {
                 types.push('unknown[]');
             } else {
@@ -142,7 +139,9 @@ export function generateTypeScript(data: unknown, rootName = 'Root'): string {
             }
         }
 
-        return dedupeTypes(types);
+        const unique = Array.from(new Set(types));
+        if (unique.length === 0) return 'unknown';
+        return unique.length === 1 ? unique[0] : unique.join(' | ');
     };
 
     if (isPlainObject(data)) {
@@ -150,9 +149,10 @@ export function generateTypeScript(data: unknown, rootName = 'Root'): string {
     } else if (Array.isArray(data)) {
         const safeRoot = toPascalCase(rootName, 'Root');
         usedNames.add(safeRoot);
-        const itemType = data.length === 0
-            ? 'unknown'
-            : inferFromSamples(data, `${safeRoot}Item`);
+        const itemType =
+            data.length === 0
+                ? 'unknown'
+                : inferFromSamples(sampleArray(data), `${safeRoot}Item`);
         declarations.push(`export type ${safeRoot} = ${wrapUnionForArray(itemType)};`);
     } else {
         const safeRoot = toPascalCase(rootName, 'Root');
@@ -173,51 +173,42 @@ interface JsonSchemaObject {
     anyOf?: JsonSchemaObject[];
 }
 
-function mergeSchemas(schemas: JsonSchemaObject[]): JsonSchemaObject {
-    if (schemas.length === 0) return {};
-    if (schemas.length === 1) return schemas[0];
-
-    const serialized = new Map<string, JsonSchemaObject>();
-    for (const schema of schemas) {
-        serialized.set(JSON.stringify(schema), schema);
-    }
-    const unique = Array.from(serialized.values());
-    if (unique.length === 1) return unique[0];
-
-    const allSimpleTyped = unique.every(
-        (s) => typeof s.type === 'string' && !s.properties && !s.items && !s.anyOf
-    );
-    if (allSimpleTyped) {
-        return {
-            type: Array.from(new Set(unique.map((s) => s.type as string))),
-        };
-    }
-
-    return { anyOf: unique };
-}
-
 function inferSchemaNode(samples: unknown[]): JsonSchemaObject {
     if (samples.length === 0) return {};
 
+    const primitiveTypes = new Set<string>();
     const objects: Record<string, unknown>[] = [];
     const arrays: unknown[][] = [];
-    const otherSchemas: JsonSchemaObject[] = [];
 
     for (const value of samples) {
         if (value === null) {
-            otherSchemas.push({ type: 'null' });
+            primitiveTypes.add('null');
         } else if (Array.isArray(value)) {
             arrays.push(value);
         } else if (isPlainObject(value)) {
             objects.push(value);
         } else if (typeof value === 'number') {
-            otherSchemas.push({ type: Number.isInteger(value) ? 'integer' : 'number' });
+            primitiveTypes.add(Number.isInteger(value) ? 'integer' : 'number');
         } else if (typeof value === 'string' || typeof value === 'boolean') {
-            otherSchemas.push({ type: typeof value });
+            primitiveTypes.add(typeof value);
         }
     }
 
-    const candidates: JsonSchemaObject[] = [...otherSchemas];
+    if (primitiveTypes.has('integer') && primitiveTypes.has('number')) {
+        primitiveTypes.delete('integer');
+    }
+
+    const candidates: JsonSchemaObject[] = [];
+
+    if (primitiveTypes.size === 1) {
+        candidates.push({ type: Array.from(primitiveTypes)[0] });
+    } else if (primitiveTypes.size > 1 && objects.length === 0 && arrays.length === 0) {
+        candidates.push({ type: Array.from(primitiveTypes) });
+    } else {
+        for (const pType of primitiveTypes) {
+            candidates.push({ type: pType });
+        }
+    }
 
     if (objects.length > 0) {
         const keys: string[] = [];
@@ -256,18 +247,21 @@ function inferSchemaNode(samples: unknown[]): JsonSchemaObject {
     }
 
     if (arrays.length > 0) {
-        const flatItems = arrays.flat();
+        const flatItems = sampleArray(arrays.flat());
         candidates.push({
             type: 'array',
             items: flatItems.length > 0 ? inferSchemaNode(flatItems) : {},
         });
     }
 
-    return mergeSchemas(candidates);
+    if (candidates.length === 0) return {};
+    if (candidates.length === 1) return candidates[0];
+    return { anyOf: candidates };
 }
 
 export function generateJsonSchema(data: unknown, title = 'Root'): string {
-    const body = inferSchemaNode([data]);
+    const sampledData = Array.isArray(data) ? sampleArray(data) : data;
+    const body = inferSchemaNode([sampledData]);
     const schema: JsonSchemaObject = {
         $schema: 'https://json-schema.org/draft/2020-12/schema',
         title,

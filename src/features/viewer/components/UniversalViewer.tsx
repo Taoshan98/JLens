@@ -1,11 +1,11 @@
-import React, { Suspense, useState } from 'react';
-import Split from 'react-split';
+import React, { Suspense, useCallback, useState } from 'react';
 import { Braces, FileText, Code2, Network, Table2, FileCode2 } from 'lucide-react';
 import { JsonTree } from './JsonTree';
 import { NodeDetailPanel, type NodeDetail } from './NodeDetailPanel';
 import { DataTableView } from './DataTableView';
 import { Format, FORMATS, FormatCategory } from '../../../types/formats';
 import { ErrorBoundary } from '../../../components/ErrorBoundary';
+import { ResizableSplit } from '../../../components/ResizableSplit';
 
 const DocumentPreview = React.lazy(() =>
     import('./DocumentPreview').then((mod) => ({ default: mod.DocumentPreview }))
@@ -37,21 +37,24 @@ export const UniversalViewer: React.FC<UniversalViewerProps> = ({ data, format }
 
     const selectedNode = selectionState.dataRef === data ? selectionState.node : null;
 
-    const handleSelect = (path: string, value: unknown, key: string) => {
-        let type: string = typeof value;
-        if (value === null) type = 'null';
-        else if (Array.isArray(value)) type = 'array';
+    const handleSelect = useCallback(
+        (path: string, value: unknown, key: string) => {
+            let type: string = typeof value;
+            if (value === null) type = 'null';
+            else if (Array.isArray(value)) type = 'array';
 
-        setSelectionState({
-            dataRef: data,
-            node: {
-                key,
-                value,
-                type,
-                path,
-            },
-        });
-    };
+            setSelectionState({
+                dataRef: data,
+                node: {
+                    key,
+                    value,
+                    type,
+                    path,
+                },
+            });
+        },
+        [data]
+    );
 
     if (data === null || data === undefined) {
         return (
@@ -171,29 +174,29 @@ export const UniversalViewer: React.FC<UniversalViewerProps> = ({ data, format }
 
                 <div className="flex-1 min-h-0 overflow-hidden">
                     {viewMode === 'tree' && (
-                        <Split
-                            className="flex flex-col h-full"
-                            sizes={[70, 30]}
-                            minSize={100}
-                            gutterSize={12}
-                            gutterAlign="center"
-                            snapOffset={30}
-                            dragInterval={1}
+                        <ResizableSplit
                             direction="vertical"
-                            cursor="row-resize"
-                        >
-                            <div className="h-full overflow-hidden">
-                                <JsonTree
-                                    data={data}
-                                    selectedPath={selectedNode?.path}
-                                    onSelect={handleSelect}
-                                />
-                            </div>
-
-                            <div className="h-full overflow-auto rounded-lg border border-border bg-card">
-                                <NodeDetailPanel selectedNode={selectedNode} rootData={data} />
-                            </div>
-                        </Split>
+                            initialRatio={0.7}
+                            minFirstPx={120}
+                            minSecondPx={96}
+                            gutterSize={12}
+                            ariaLabel="Resize tree and node details"
+                            className="h-full"
+                            first={
+                                <div className="h-full overflow-hidden">
+                                    <JsonTree
+                                        data={data}
+                                        selectedPath={selectedNode?.path}
+                                        onSelect={handleSelect}
+                                    />
+                                </div>
+                            }
+                            second={
+                                <div className="h-full overflow-auto rounded-lg border border-border bg-card">
+                                    <NodeDetailPanel selectedNode={selectedNode} rootData={data} />
+                                </div>
+                            }
+                        />
                     )}
 
                     {viewMode === 'table' && <DataTableView data={data} />}

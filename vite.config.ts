@@ -12,14 +12,11 @@ export default defineConfig({
   },
   base: './',
   build: {
-    chunkSizeWarningLimit: 800,
+    chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {
         manualChunks: {
           'vendor': ['react', 'react-dom'],
-          'syntax-highlighter': ['react-syntax-highlighter'],
-          'beautify': ['js-beautify'],
-          'utils': ['fast-xml-parser', 'yaml', 'sql-formatter', 'papaparse', 'smol-toml', 'ini'],
           'icons': ['lucide-react'],
         },
       },

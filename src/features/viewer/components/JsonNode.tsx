@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HighlightText } from './HighlightText';
+import { JsonValue } from './JsonValue';
 import { appendPointer, isAncestorPointer } from '../../../utils/jsonPath';
 
 export interface ExpansionSignal {
@@ -28,7 +29,12 @@ function getDataType(val: unknown): string {
     return typeof val;
 }
 
-export const JsonNode: React.FC<JsonNodeProps> = ({
+function isRelevantPath(nodePath: string, targetPath: string | null | undefined): boolean {
+    if (targetPath === null || targetPath === undefined) return false;
+    return targetPath === nodePath || isAncestorPointer(nodePath, targetPath);
+}
+
+const JsonNodeComponent: React.FC<JsonNodeProps> = ({
     keyName,
     value,
     depth = 0,
@@ -134,36 +140,6 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
         }
     };
 
-    const renderValue = () => {
-        let baseClass = '';
-        let valStr = String(value);
-
-        switch (type) {
-            case 'string':
-                baseClass = 'text-emerald-600 dark:text-emerald-400';
-                valStr = `"${valStr}"`;
-                break;
-            case 'number':
-                baseClass = 'text-amber-600 dark:text-amber-400';
-                break;
-            case 'boolean':
-                baseClass = 'text-rose-600 dark:text-rose-400';
-                break;
-            case 'null':
-                baseClass = 'text-muted-foreground';
-                valStr = 'null';
-                break;
-            default:
-                return null;
-        }
-
-        if (!searchQuery) {
-            return <span className={baseClass}>{valStr}</span>;
-        }
-
-        return <HighlightText text={valStr} query={searchQuery} className={baseClass} />;
-    };
-
     const renderBrackets = (isOpen: boolean) => {
         if (type === 'array') return isOpen ? '[' : ']';
         return isOpen ? '{' : '}';
@@ -185,7 +161,6 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
                     ${isObject ? 'cursor-pointer' : ''}`}
                 style={{ paddingLeft: `calc(${depth * 1.25}rem + 2rem)` }}
             >
-                {/* Toggle */}
                 <button
                     type="button"
                     tabIndex={-1}
@@ -205,7 +180,6 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
                     )}
                 </button>
 
-                {/* Key & Value */}
                 <div className="flex-grow flex flex-wrap break-all select-text">
                     {keyName && (
                         <span className="text-sky-600 dark:text-sky-400 mr-1.5">
@@ -223,7 +197,7 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
                             )}
                         </span>
                     ) : (
-                        renderValue()
+                        <JsonValue type={type} value={value} searchQuery={searchQuery} />
                     )}
 
                     {!isExpanded && isObject && (
@@ -242,7 +216,6 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
                 </div>
             </div>
 
-            {/* Children */}
             {isObject && isExpanded && !isEmpty && (
                 <div role="group">
                     {visibleEntries.map(([k, v], index) => (
@@ -306,3 +279,41 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
         </div>
     );
 };
+
+export const JsonNode = React.memo(JsonNodeComponent, (prev, next) => {
+    if (
+        prev.keyName !== next.keyName ||
+        prev.value !== next.value ||
+        prev.depth !== next.depth ||
+        prev.isLast !== next.isLast ||
+        prev.path !== next.path ||
+        prev.onSelect !== next.onSelect ||
+        prev.searchQuery !== next.searchQuery ||
+        prev.expansionSignal !== next.expansionSignal
+    ) {
+        return false;
+    }
+
+    const nodePath = next.path ?? '';
+    if (prev.selectedPath !== next.selectedPath) {
+        if (
+            isRelevantPath(nodePath, prev.selectedPath) ||
+            isRelevantPath(nodePath, next.selectedPath)
+        ) {
+            return false;
+        }
+    }
+
+    if (prev.activeMatchPath !== next.activeMatchPath) {
+        if (
+            isRelevantPath(nodePath, prev.activeMatchPath) ||
+            isRelevantPath(nodePath, next.activeMatchPath)
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+});
+
+JsonNode.displayName = 'JsonNode';

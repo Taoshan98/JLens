@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { appendPointer } from '../../../utils/jsonPath';
 
 export interface SearchMatch {
     path: string;
@@ -6,64 +7,96 @@ export interface SearchMatch {
     value: string;
 }
 
+function formatMatchPreview(val: unknown): string {
+    if (val === null) return 'null';
+    if (Array.isArray(val)) return `Array(${val.length})`;
+    if (typeof val === 'object') return `Object(${Object.keys(val).length})`;
+    return String(val);
+}
+
 export const useJsonSearch = (data: unknown) => {
     const [query, setQuery] = useState('');
-    const [matches, setMatches] = useState<SearchMatch[]>([]);
-    const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
+    const [navState, setNavState] = useState<{
+        dataRef: unknown;
+        query: string;
+        index: number;
+    }>({
+        dataRef: data,
+        query: '',
+        index: 0,
+    });
 
-    // Search function to find all matches
-    useEffect(() => {
-        if (!query || !data) {
-            setMatches([]);
-            setCurrentMatchIndex(-1);
-            return;
+    const matches = useMemo<SearchMatch[]>(() => {
+        if (!query || data === null || data === undefined) {
+            return [];
         }
 
         const found: SearchMatch[] = [];
         const lowerQuery = query.toLowerCase();
 
-        const traverse = (val: unknown, currentPath: string, keyName: string) => {
-            // 1. Check Key
-            if (keyName && keyName.toLowerCase().includes(lowerQuery)) {
-                found.push({ path: currentPath, key: keyName, value: String(val) });
-            }
-            // 2. Check Value (if primitive)
-            else if (val !== null && typeof val !== 'object') {
+        const traverse = (
+            val: unknown,
+            currentPath: string,
+            keyName: string,
+            isParentArray: boolean
+        ) => {
+            if (!isParentArray && keyName && keyName.toLowerCase().includes(lowerQuery)) {
+                found.push({
+                    path: currentPath,
+                    key: keyName,
+                    value: formatMatchPreview(val),
+                });
+            } else if (val !== null && val !== undefined && typeof val !== 'object') {
                 if (String(val).toLowerCase().includes(lowerQuery)) {
-                    found.push({ path: currentPath, key: keyName, value: String(val) });
+                    found.push({
+                        path: currentPath,
+                        key: keyName,
+                        value: String(val),
+                    });
                 }
             }
 
-            // 3. Recurse
             if (val !== null && typeof val === 'object') {
+                const isArrayVal = Array.isArray(val);
                 Object.entries(val).forEach(([k, v]) => {
-                    const nextPath = currentPath ? `${currentPath}.${k}` : k;
-                    traverse(v, nextPath, k);
+                    traverse(v, appendPointer(currentPath, k), k, isArrayVal);
                 });
             }
         };
 
-        // Start traversal
-        // Root is special, usually we don't match "root" name unless explicitly handled, 
-        // but let's assume we start checking children of root if root is object/array.
-        // Or if data itself is a primitive match?
-
-        traverse(data, 'root', '');
-
-        setMatches(found);
-        setCurrentMatchIndex(found.length > 0 ? 0 : -1);
-
+        traverse(data, '', '', false);
+        return found;
     }, [data, query]);
+
+    const currentMatchIndex = useMemo(() => {
+        if (matches.length === 0) return -1;
+        if (navState.dataRef !== data || navState.query !== query) return 0;
+        return ((navState.index % matches.length) + matches.length) % matches.length;
+    }, [matches.length, navState, data, query]);
 
     const nextMatch = useCallback(() => {
         if (matches.length === 0) return;
-        setCurrentMatchIndex(prev => (prev + 1) % matches.length);
-    }, [matches]);
+        setNavState((prev) => {
+            const base = prev.dataRef === data && prev.query === query ? prev.index : 0;
+            return {
+                dataRef: data,
+                query,
+                index: (base + 1) % matches.length,
+            };
+        });
+    }, [matches.length, data, query]);
 
     const prevMatch = useCallback(() => {
         if (matches.length === 0) return;
-        setCurrentMatchIndex(prev => (prev - 1 + matches.length) % matches.length);
-    }, [matches]);
+        setNavState((prev) => {
+            const base = prev.dataRef === data && prev.query === query ? prev.index : 0;
+            return {
+                dataRef: data,
+                query,
+                index: (base - 1 + matches.length) % matches.length,
+            };
+        });
+    }, [matches.length, data, query]);
 
     return {
         query,
@@ -72,6 +105,6 @@ export const useJsonSearch = (data: unknown) => {
         currentMatchIndex,
         nextMatch,
         prevMatch,
-        activeMatch: matches[currentMatchIndex] || null
+        activeMatch: currentMatchIndex >= 0 ? matches[currentMatchIndex] || null : null,
     };
 };

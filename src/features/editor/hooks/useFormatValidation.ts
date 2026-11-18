@@ -14,7 +14,7 @@ export const useFormatValidation = () => {
         isValid: true,
         error: null,
         parsedData: null,
-        detectedFormat: Format.TEXT
+        detectedFormat: Format.TEXT,
     });
 
     const validate = useCallback((content: string, explicitFormat?: Format) => {
@@ -23,7 +23,7 @@ export const useFormatValidation = () => {
                 isValid: true,
                 error: null,
                 parsedData: null,
-                detectedFormat: Format.TEXT
+                detectedFormat: explicitFormat ?? Format.TEXT,
             });
             return;
         }
@@ -36,14 +36,14 @@ export const useFormatValidation = () => {
                 isValid: true,
                 error: null,
                 parsedData: parsed,
-                detectedFormat: format
+                detectedFormat: format,
             });
         } catch (err) {
             setValidation({
                 isValid: false,
                 error: err instanceof Error ? err.message : `Invalid ${format}`,
                 parsedData: null,
-                detectedFormat: format
+                detectedFormat: format,
             });
         }
     }, []);

@@ -3,7 +3,11 @@ import React from 'react';
 interface HighlightTextProps {
     text: string;
     query: string;
-    className?: string; // Base class for the text
+    className?: string;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export const HighlightText: React.FC<HighlightTextProps> = ({ text, query, className = '' }) => {
@@ -11,13 +15,18 @@ export const HighlightText: React.FC<HighlightTextProps> = ({ text, query, class
         return <span className={className}>{text}</span>;
     }
 
-    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    const escaped = escapeRegExp(query);
+    const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+    const lowerQuery = query.toLowerCase();
 
     return (
         <span className={className}>
             {parts.map((part, index) =>
-                part.toLowerCase() === query.toLowerCase() ? (
-                    <span key={index} className="bg-yellow-200 dark:bg-yellow-900/50 text-foreground font-bold rounded-[1px] px-[1px]">
+                part.toLowerCase() === lowerQuery ? (
+                    <span
+                        key={index}
+                        className="bg-yellow-200 dark:bg-yellow-900/50 text-foreground font-bold rounded-[1px] px-[1px]"
+                    >
                         {part}
                     </span>
                 ) : (

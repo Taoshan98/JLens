@@ -19,7 +19,7 @@ export default defineConfig({
           'vendor': ['react', 'react-dom'],
           'syntax-highlighter': ['react-syntax-highlighter'],
           'beautify': ['js-beautify'],
-          'utils': ['fast-xml-parser', 'yaml', 'sql-formatter', 'papaparse'],
+          'utils': ['fast-xml-parser', 'yaml', 'sql-formatter', 'papaparse', 'smol-toml', 'ini'],
           'icons': ['lucide-react'],
         },
       },

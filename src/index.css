@@ -136,3 +136,56 @@
     width: 1.5rem;
     @apply text-muted-foreground/30 text-xs font-mono select-none text-right;
 }
+
+/* Split Pane Gutters */
+.gutter {
+    position: relative;
+    background-color: transparent;
+    transition: background-color 150ms ease;
+    flex-shrink: 0;
+}
+
+.gutter::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 9999px;
+    background-color: hsl(var(--border));
+    transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.gutter:hover::after,
+.gutter:active::after {
+    background-color: hsl(var(--primary) / 0.45);
+}
+
+.gutter.gutter-horizontal {
+    cursor: col-resize;
+}
+
+.gutter.gutter-horizontal::after {
+    width: 3px;
+    height: 36px;
+}
+
+.gutter.gutter-vertical {
+    cursor: row-resize;
+}
+
+.gutter.gutter-vertical::after {
+    width: 36px;
+    height: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

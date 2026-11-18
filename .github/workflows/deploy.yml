@@ -30,6 +30,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 
@@ -71,5 +77,5 @@ jobs:
             echo "Tag $TAG already exists. Skipping release."
           else
             echo "Creating release for $TAG"
-            gh release create "$TAG" --generate-notes
+            gh release create "$TAG" --target "${{ github.sha }}" --generate-notes
           fi

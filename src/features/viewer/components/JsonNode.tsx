@@ -1,16 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HighlightText } from './HighlightText';
+import { appendPointer, isAncestorPointer } from '../../../utils/jsonPath';
+
+export interface ExpansionSignal {
+    id: number;
+    expanded: boolean;
+}
 
 interface JsonNodeProps {
     keyName: string;
     value: unknown;
     depth?: number;
     isLast?: boolean;
-    path?: string; // Current path
+    path?: string;
     selectedPath?: string | null;
     onSelect?: (path: string, value: unknown, key: string) => void;
     searchQuery?: string;
-    activeMatchPath?: string | null; // The path of the currently "FOCUSED via search" node
+    activeMatchPath?: string | null;
+    expansionSignal?: ExpansionSignal;
+}
+
+const PAGE_SIZE = 100;
+
+function getDataType(val: unknown): string {
+    if (val === null) return 'null';
+    if (Array.isArray(val)) return 'array';
+    return typeof val;
 }
 
 export const JsonNode: React.FC<JsonNodeProps> = ({
@@ -22,94 +37,131 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
     selectedPath,
     onSelect,
     searchQuery = '',
-    activeMatchPath
+    activeMatchPath = null,
+    expansionSignal,
 }) => {
-    const [isExpanded, setIsExpanded] = useState(true); // Default to expanded? Or closed? Usually closed.
-    // NOTE: The previous code had `useState(true)`. Let's stick to true for now or user preference? 
-    // Usually large JSONs start collapsed at root matching level? 
-    // Let's stick to default behavior (expanded) or maybe `depth < 2`?
-    // The user didn't specify, but "auto-expand" implies they might be closed.
-
-    // We'll keep default true for root, maybe? Previous code: `useState(true)`.
-
-    const nodeRef = useRef<HTMLDivElement>(null);
-
-    const getDataType = (val: unknown): string => {
-        if (val === null) return 'null';
-        if (Array.isArray(val)) return 'array';
-        return typeof val;
-    };
-
     const type = getDataType(value);
     const isObject = type === 'object' || type === 'array';
-    const isEmpty = isObject && (value ? Object.keys(value as object).length === 0 : true);
+    const entries = isObject && value ? Object.entries(value as object) : [];
+    const isEmpty = isObject && entries.length === 0;
 
-    // Current full path for this node.
-    // FIX: Rely on the passed 'path' prop as the definitive full path for THIS node.
-    // If not provided (root), fallback to 'root'.
-    const currentPath = path || 'root';
+    const defaultExpanded = depth < 2 || (depth < 4 && entries.length <= 12);
+    const currentSignalId = expansionSignal?.id ?? 0;
 
+    const [toggleState, setToggleState] = useState<{
+        signalId: number;
+        expanded: boolean;
+        collapsedMatchPath: string | null;
+    }>(() => ({
+        signalId: currentSignalId,
+        expanded: expansionSignal ? expansionSignal.expanded : defaultExpanded,
+        collapsedMatchPath: null,
+    }));
+
+    const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
+    const nodeRef = useRef<HTMLDivElement>(null);
+
+    const currentPath = path;
     const isSelected = selectedPath === currentPath;
-    const isActiveMatch = activeMatchPath === currentPath;
+    const isActiveMatch = activeMatchPath !== null && activeMatchPath === currentPath;
+    const isAncestorOfActiveMatch = Boolean(
+        activeMatchPath && isObject && !isEmpty && isAncestorPointer(currentPath, activeMatchPath)
+    );
 
-    // Auto-Expand if we are an ancestor of the activeMatchPath
-    // We match if activeMatchPath starts with our path + "."
-    useEffect(() => {
-        if (activeMatchPath && isObject && !isEmpty) {
-            // If we are strictly the parent/ancestor.
-            // e.g. active="root.a.b", current="root.a" -> startsWith("root.a") is true.
-            // But we only want to expand if it's strictly deeper.
-            if (activeMatchPath.startsWith(currentPath + '.')) {
-                setIsExpanded(true);
-            }
+    const baseExpanded =
+        expansionSignal && toggleState.signalId !== expansionSignal.id
+            ? expansionSignal.expanded
+            : toggleState.expanded;
+    const forceExpandForMatch =
+        isAncestorOfActiveMatch && toggleState.collapsedMatchPath !== activeMatchPath;
+    const isExpanded = baseExpanded || forceExpandForMatch;
+
+    let effectiveLimit = visibleLimit;
+    if (isAncestorOfActiveMatch && activeMatchPath) {
+        const matchChildIndex = entries.findIndex(([k]) => {
+            const childPtr = appendPointer(currentPath, k);
+            return childPtr === activeMatchPath || isAncestorPointer(childPtr, activeMatchPath);
+        });
+        if (matchChildIndex >= effectiveLimit) {
+            effectiveLimit = matchChildIndex + 20;
         }
-    }, [activeMatchPath, currentPath, isObject, isEmpty]);
+    }
 
-    // Scroll into view if we are the active match
+    const visibleEntries = entries.slice(0, effectiveLimit);
+    const remainingCount = entries.length - visibleEntries.length;
+
     useEffect(() => {
         if (isActiveMatch && nodeRef.current) {
             nodeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     }, [isActiveMatch]);
 
+    const setManualExpand = (nextExpanded: boolean) => {
+        setToggleState({
+            signalId: currentSignalId,
+            expanded: nextExpanded,
+            collapsedMatchPath:
+                !nextExpanded && isAncestorOfActiveMatch ? activeMatchPath : null,
+        });
+    };
 
     const handleExpandToggle = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!isEmpty) {
-            setIsExpanded(!isExpanded);
+            setManualExpand(!isExpanded);
         }
     };
 
     const handleSelect = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (window.getSelection()?.toString()) return;
         onSelect?.(currentPath, value, keyName || 'root');
     };
 
-    const renderValue = () => {
-        if (!searchQuery) {
-            switch (type) {
-                case 'string': return <span className="text-emerald-600 dark:text-emerald-400">"{String(value)}"</span>;
-                case 'number': return <span className="text-amber-600 dark:text-amber-400">{String(value)}</span>;
-                case 'boolean': return <span className="text-violet-600 dark:text-violet-400">{String(value)}</span>;
-                case 'null': return <span className="text-muted-foreground">null</span>;
-                default: return null;
-            }
-        } else {
-            // Highlighted rendering
-            let baseClass = "";
-            let valStr = String(value);
-
-            switch (type) {
-                case 'string':
-                    baseClass = "text-emerald-600 dark:text-emerald-400";
-                    valStr = `"${valStr}"`;
-                    break;
-                case 'number': baseClass = "text-amber-600 dark:text-amber-400"; break;
-                case 'boolean': baseClass = "text-violet-600 dark:text-violet-400"; break;
-                case 'null': baseClass = "text-muted-foreground"; valStr = "null"; break;
-            }
-            return <HighlightText text={valStr} query={searchQuery} className={baseClass} />;
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onSelect?.(currentPath, value, keyName || 'root');
+        } else if (e.key === 'ArrowRight' && isObject && !isEmpty && !isExpanded) {
+            e.preventDefault();
+            e.stopPropagation();
+            setManualExpand(true);
+        } else if (e.key === 'ArrowLeft' && isObject && !isEmpty && isExpanded) {
+            e.preventDefault();
+            e.stopPropagation();
+            setManualExpand(false);
         }
+    };
+
+    const renderValue = () => {
+        let baseClass = '';
+        let valStr = String(value);
+
+        switch (type) {
+            case 'string':
+                baseClass = 'text-emerald-600 dark:text-emerald-400';
+                valStr = `"${valStr}"`;
+                break;
+            case 'number':
+                baseClass = 'text-amber-600 dark:text-amber-400';
+                break;
+            case 'boolean':
+                baseClass = 'text-rose-600 dark:text-rose-400';
+                break;
+            case 'null':
+                baseClass = 'text-muted-foreground';
+                valStr = 'null';
+                break;
+            default:
+                return null;
+        }
+
+        if (!searchQuery) {
+            return <span className={baseClass}>{valStr}</span>;
+        }
+
+        return <HighlightText text={valStr} query={searchQuery} className={baseClass} />;
     };
 
     const renderBrackets = (isOpen: boolean) => {
@@ -121,27 +173,40 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
         <div className="font-mono text-sm leading-relaxed">
             <div
                 ref={nodeRef}
-                className={`flex items-start rounded px-1.5 -ml-1.5 transition-colors duration-100 json-node-row
-                    ${isSelected ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-accent/40'} 
-                    ${isActiveMatch ? 'ring-2 ring-yellow-400/50 bg-yellow-400/10' : ''}
+                role="treeitem"
+                tabIndex={0}
+                aria-expanded={isObject && !isEmpty ? isExpanded : undefined}
+                aria-selected={isSelected}
+                onKeyDown={handleKeyDown}
+                onClick={handleSelect}
+                className={`flex items-start rounded px-1.5 -ml-1.5 transition-colors duration-100 json-node-row focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50
+                    ${isSelected ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-accent/40'}
+                    ${isActiveMatch ? 'ring-2 ring-yellow-400/60 bg-yellow-400/10' : ''}
                     ${isObject ? 'cursor-pointer' : ''}`}
                 style={{ paddingLeft: `calc(${depth * 1.25}rem + 2rem)` }}
-                onClick={handleSelect}
             >
                 {/* Toggle */}
-                <div
-                    className="w-4 h-6 flex items-center justify-center mr-1 text-muted-foreground/60 hover:text-foreground cursor-pointer"
-                    onClick={isObject ? handleExpandToggle : undefined}
+                <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={isExpanded ? 'Collapse node' : 'Expand node'}
+                    disabled={!isObject || isEmpty}
+                    onClick={isObject && !isEmpty ? handleExpandToggle : undefined}
+                    className="w-4 h-6 flex items-center justify-center mr-1 text-muted-foreground/60 hover:text-foreground cursor-pointer disabled:cursor-default shrink-0"
                 >
                     {isObject && !isEmpty && (
-                        <span className={`text-[10px] transition-transform duration-100 ${isExpanded ? 'rotate-0' : '-rotate-90'}`}>
+                        <span
+                            className={`text-[10px] transition-transform duration-100 ${
+                                isExpanded ? 'rotate-0' : '-rotate-90'
+                            }`}
+                        >
                             ▼
                         </span>
                     )}
-                </div>
+                </button>
 
                 {/* Key & Value */}
-                <div className="flex-grow flex flex-wrap break-all pointer-events-none">
+                <div className="flex-grow flex flex-wrap break-all select-text">
                     {keyName && (
                         <span className="text-sky-600 dark:text-sky-400 mr-1.5">
                             <HighlightText text={`"${keyName}"`} query={searchQuery} />:
@@ -153,7 +218,7 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
                             {renderBrackets(true)}
                             {!isExpanded && (
                                 <span className="text-muted-foreground/60 px-1 text-xs">
-                                    {Array.isArray(value) ? (value as unknown[]).length : Object.keys(value as object).length} items
+                                    {entries.length} {entries.length === 1 ? 'item' : 'items'}
                                 </span>
                             )}
                         </span>
@@ -179,24 +244,57 @@ export const JsonNode: React.FC<JsonNodeProps> = ({
 
             {/* Children */}
             {isObject && isExpanded && !isEmpty && (
-                <div>
-                    {Object.entries(value as object).map(([k, v], index, arr) => (
+                <div role="group">
+                    {visibleEntries.map(([k, v], index) => (
                         <JsonNode
                             key={k}
                             keyName={Array.isArray(value) ? '' : k}
                             value={v}
                             depth={depth + 1}
-                            isLast={index === arr.length - 1}
-                            path={`${currentPath}.${k}`}
+                            isLast={index === entries.length - 1}
+                            path={appendPointer(currentPath, k)}
                             selectedPath={selectedPath}
                             onSelect={onSelect}
                             searchQuery={searchQuery}
                             activeMatchPath={activeMatchPath}
+                            expansionSignal={expansionSignal}
                         />
                     ))}
-                    <div className="rounded px-1.5 -ml-1.5 json-node-row relative" style={{ paddingLeft: `calc(${depth * 1.25}rem + 3.5rem)` }}>
+
+                    {remainingCount > 0 && (
+                        <div
+                            className="flex items-center gap-2 py-1 text-xs"
+                            style={{ paddingLeft: `calc(${(depth + 1) * 1.25}rem + 3.25rem)` }}
+                        >
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setVisibleLimit(effectiveLimit + PAGE_SIZE);
+                                }}
+                                className="px-2 py-0.5 rounded border border-border bg-muted/30 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                                Show {Math.min(PAGE_SIZE, remainingCount)} more ({remainingCount} remaining)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setVisibleLimit(entries.length);
+                                }}
+                                className="px-2 py-0.5 rounded border border-border bg-muted/30 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                                Show all ({entries.length})
+                            </button>
+                        </div>
+                    )}
+
+                    <div
+                        className="rounded px-1.5 -ml-1.5 json-node-row relative"
+                        style={{ paddingLeft: `calc(${depth * 1.25}rem + 3.5rem)` }}
+                    >
                         <div className="flex">
-                            <div className="w-4 mr-1"></div>
+                            <div className="w-4 mr-1" />
                             <div className="text-foreground/70">
                                 {renderBrackets(false)}
                                 {!isLast && <span className="text-muted-foreground/50">,</span>}

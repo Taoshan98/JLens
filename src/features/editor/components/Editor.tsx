@@ -16,7 +16,7 @@ interface JsonEditorProps {
 
 const SAMPLE_JSON = `{
   "service": "jlens-explorer",
-  "version": "1.2.0",
+  "version": "${__APP_VERSION__}",
   "clientSideOnly": true,
   "features": [
     { "id": "tree", "name": "Interactive Tree", "enabled": true },
